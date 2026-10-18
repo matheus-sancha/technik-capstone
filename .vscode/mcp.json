@@ -1,0 +1,9 @@
+{
+  "servers": {
+    "technik-teamcenter": {
+      "type": "stdio",
+      "command": "uv",
+      "args": ["run", "--directory", "${workspaceFolder}", "server/teamcenter.py"]
+    }
+  }
+}

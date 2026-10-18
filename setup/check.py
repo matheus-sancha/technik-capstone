@@ -11,7 +11,8 @@ import sys
 import snowflake.connector
 from dotenv import load_dotenv
 
-GRANTED = ["V_WORK_ORDER_OPERATIONS", "V_RELEASED_REVISIONS", "SAP_QUALITY_NOTIFICATIONS", "TC_DOCUMENTS"]
+GRANTED = ["V_WORK_ORDER_OPERATIONS", "V_RELEASED_REVISIONS", "V_OPERATION_DOCUMENTS",
+           "SAP_QUALITY_NOTIFICATIONS", "TC_DOCUMENTS"]
 NOT_GRANTED = ["SAP_WO_OPERATIONS", "TC_DRAWINGS"]  # behind the views: the agent must not read them
 
 

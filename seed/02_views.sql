@@ -1,4 +1,4 @@
--- The two views the agent reads wherever a rule lives. Run as SYSADMIN, after the tables are loaded.
+-- The three views the agent reads wherever a rule lives. Run as SYSADMIN, after the tables are loaded.
 USE SCHEMA TECHNIK_DW.OPS;
 
 CREATE OR REPLACE VIEW V_WORK_ORDER_OPERATIONS (
@@ -50,3 +50,28 @@ SELECT i.ITEM_NO, i.ITEM_TYPE, i.TITLE, i.REVISION, i.RELEASED_AT,
 FROM items i
 LEFT JOIN TC_ECN_AFFECTED_ITEMS a ON a.ITEM_NO = i.ITEM_NO AND a.TO_REV = i.REVISION
 LEFT JOIN TC_ECNS e               ON e.ECN_NO = a.ECN_NO AND e.STATUS = 'Released';
+
+CREATE OR REPLACE VIEW V_OPERATION_DOCUMENTS (
+    WORK_ORDER    COMMENT 'SAP work order number, for example 100004521',
+    OPERATION_SEQ COMMENT 'Position of the operation in the work order routing',
+    OPERATION,
+    ITEM_NO       COMMENT 'Teamcenter number of the drawing, CNC program or work instruction',
+    ITEM_TYPE     COMMENT 'Drawing, CNC Program or Document, as in V_RELEASED_REVISIONS',
+    REVISION      COMMENT 'Revision the operation was released against. Empty for work instructions,
+                           which follow the current released revision'
+)
+COMMENT = 'The Teamcenter items each work order operation uses: one row per linked item.'
+AS
+WITH ops AS (
+    SELECT o.*
+    FROM SAP_WO_OPERATIONS o
+    JOIN SAP_WORK_ORDERS w ON w.WO_NO = o.WO_NO
+    WHERE w.STATUS <> 'CRTD'
+    QUALIFY ROW_NUMBER() OVER (PARTITION BY o.WO_NO, o.OP_SEQ
+                               ORDER BY o.CONFIRMATION_NO DESC) = 1
+)
+SELECT WO_NO, OP_SEQ, OPERATION, DRAWING_NO,          'Drawing',     DRAWING_REV     FROM ops WHERE DRAWING_NO IS NOT NULL
+UNION ALL
+SELECT WO_NO, OP_SEQ, OPERATION, CNC_PROGRAM_NO,      'CNC Program', CNC_PROGRAM_REV FROM ops WHERE CNC_PROGRAM_NO IS NOT NULL
+UNION ALL
+SELECT WO_NO, OP_SEQ, OPERATION, WORK_INSTRUCTION_NO, 'Document',    NULL            FROM ops WHERE WORK_INSTRUCTION_NO IS NOT NULL;
