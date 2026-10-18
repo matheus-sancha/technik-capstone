@@ -1,0 +1,8 @@
+# Secrets: never committed
+.env
+keys/
+
+# Python
+.venv/
+__pycache__/
+*.pyc

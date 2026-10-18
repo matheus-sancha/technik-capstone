@@ -1,0 +1,5 @@
+ECN_NO,TITLE,REASON,STATUS,CREATED_AT,RELEASED_AT
+ECN70000029,Cladding inspection: add dye-penetrant step,Customer audit finding,Released,2024-08-26 09:00,2024-09-30 10:00
+ECN70000037,XT V2 body: revised bore tolerance,Machining capability study,Released,2026-02-16 10:00,2026-03-10 14:20
+ECN70000042,Add UT check before cladding; tighten porosity limit,Recurring overlay porosity QNs,Released,2026-08-03 09:00,2026-09-22 11:00
+ECN70000051,XT V2 body: increase bore overlay machining allowance,Overlay thickness below 3.0 mm after finish machining,Released,2026-09-01 08:00,2026-09-15 09:30

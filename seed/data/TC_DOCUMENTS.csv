@@ -1,0 +1,13 @@
+DOC_NO,DOC_TYPE,REVISION,TITLE,OWNER,STATUS,RELEASED_AT,NEXT_REVIEW_DATE
+SOP70000101,SOP,B,Quality Notification Handling,Ingrid Solberg,Released,2025-11-04 09:00,2027-11-04
+SOP70000114,SOP,C,Engineering Change Notification Process,Henrik Aas,Released,2024-08-19 13:00,2026-08-19
+SWI70000318,SWI,A,Cladding Preparation and Inspection,Marte Lien,Obsolete,2023-06-12 10:00,
+SWI70000318,SWI,B,Cladding Preparation and Inspection,Marte Lien,Released,2024-09-30 10:00,2026-09-30
+SWI70000318,SWI,C,Cladding Preparation and Inspection,Marte Lien,In Work,,
+SWI70000402,SWI,A,Hydrostatic Test During Assembly & Testing,Jonas Berge,Released,2025-06-03 08:30,2027-06-03
+GWI70000027,GWI,A,Controlled Document Authoring Template,Henrik Aas,Released,2025-01-15 12:00,2027-01-15
+TDS70000044,TDS,A,Technical Datasheet: Ceramic Bore Coating,Siv Dahl,Released,2023-07-31 09:00,2026-07-31
+DGL70000009,DGL,A,Cladding Design Guidelines,Marte Lien,Released,2025-03-20 15:00,2027-03-20
+DCP70000076,DCP,A,Bore Preparation Data Collection Point,Marte Lien,Released,2025-03-20 15:00,2027-03-20
+SWI70000325,SWI,A,Manifold Spool Welding,Ola Strand,Released,2025-05-08 09:00,2027-05-08
+SWI70000331,SWI,A,Valve Body Machining,Jonas Berge,Released,2025-02-27 11:00,2027-02-27
