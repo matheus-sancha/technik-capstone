@@ -15,7 +15,7 @@ Technik, its data and its documents are **fictional, for training only**.
 | `setup/check.py` | Proves the agent's identity reads what later stages need, and nothing more |
 | `server/teamcenter.py` | Stage 2: the MCP server over Teamcenter, with three tools |
 | `tests/` | Offline tests: a fake Snowflake built from `seed/data/`, and the server spawned over stdio |
-| `agent/` | The agent: its instructions, and its own uv project (Agent Framework) |
+| `agent/` | Stage 3: the agent, its instructions and offline tests, in its own uv project (Agent Framework) |
 | `evals/eval_set.jsonl` | The evaluation set, under source control from the first commit |
 
 There are two uv projects. The root one (seed, setup check and, from stage 2, the MCP server) uses
@@ -63,8 +63,9 @@ cd agent
 uv run main.py
 ```
 
-It loads the agent's instructions and does nothing else. That is the point: every later stage is
-a change to a project that already runs.
+At stage 1 it loaded the agent's instructions and did nothing else. That is the point: every later
+stage is a change to a project that already runs. From stage 3 the same command asks the model a
+question, so it needs the Foundry settings below.
 
 ## Stage 2: an MCP server over Teamcenter
 
@@ -87,3 +88,29 @@ uv run pytest
 The tests never touch Snowflake. They load `seed/data/` into an in-memory fake that exposes only
 the granted objects, call each tool, and spawn the server over stdio to call it through an MCP
 client.
+
+## Stage 3: the agent
+
+`agent/main.py` is an Agent Framework agent. It calls a Foundry model deployment, and its tools come
+from the stage 2 server, which it starts over stdio in the root project. Add your Foundry project
+endpoint and model deployment (`FOUNDRY_MODEL`, `gpt-4.1-mini` by default) to `.env`, sign in with
+`az login`, then ask it something:
+
+```powershell
+cd agent
+uv run main.py "Which documents does operation 0010 of work order 100004510 use?"
+```
+
+Its instructions, `agent/instructions.md`, are layered: role, tone, tasks, instructions, rules and
+a refusal. The refusal is also enforced in code. If no tool result backs an answer, the answer came
+from the model's memory, and `grounded_or_refuse` replaces it with the refusal. A lookup that finds
+nothing still counts as backed, because the server's error says what was wrong.
+
+```powershell
+cd agent
+uv run pytest
+```
+
+These tests never touch Snowflake or Azure. A scripted fake model drives Agent Framework's real
+tool loop, and the real server runs as a subprocess with the fake Snowflake. They check one
+answered question, one failed lookup, and one answer from memory that becomes the refusal.
