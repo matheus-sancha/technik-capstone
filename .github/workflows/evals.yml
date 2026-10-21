@@ -3,10 +3,12 @@ name: Evals
 
 on:
   pull_request:
-    paths: ["agent/**", "server/**", "evals/**", "seed/data/**", "tests/**", ".github/workflows/evals.yml"]
+    paths: ["agent/**", "server/**", "evals/**", "seed/data/**", "tests/**", "infra/**", "azure.yaml",
+            "pyproject.toml", "uv.lock", ".github/workflows/*.yml"]
   push:
     branches: [main]
   workflow_dispatch:
+  workflow_call:  # stage 5: the release workflow runs this as its gate
 
 permissions:
   contents: read
@@ -18,11 +20,11 @@ jobs:
     env:
       UV_LOCKED: "1"
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
         with:
           version: "0.11.26"
-      - name: Server tests
+      - name: Server and deployment file tests
         run: uv run pytest
       - name: Agent and runner tests
         working-directory: agent
@@ -30,11 +32,26 @@ jobs:
       - name: Evals against the baseline
         working-directory: agent
         run: uv run ../evals/run.py --offline
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: eval-report-offline
           path: evals/report.md
+
+  deploy-files:
+    # Stage 5: the Bicep compiles and lints, and both images build. Nothing is signed in or pushed.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Lint the Bicep files
+        run: |
+          az bicep install
+          az bicep lint --file infra/base.bicep
+          az bicep lint --file infra/server.bicep
+      - name: Build the server image
+        run: docker build -f server/Dockerfile -t teamcenter-mcp:ci .
+      - name: Build the agent image
+        run: docker build -t technik-agent:ci agent
 
   live:
     # The Foundry model, real Snowflake and Foundry's judges. Off until the repository variable
@@ -56,11 +73,11 @@ jobs:
       SNOWFLAKE_DATABASE: TECHNIK_DW
       SNOWFLAKE_SCHEMA: OPS
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10
         with:
           version: "0.11.26"
-      - uses: azure/login@v2
+      - uses: azure/login@v3
         with:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
@@ -74,7 +91,7 @@ jobs:
       - name: Evals against the baseline
         working-directory: agent
         run: uv run ../evals/run.py
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: eval-report-live

@@ -1,18 +1,23 @@
 """Stage 2: an MCP server over Teamcenter, with three narrow tools.
 
 It reads the Teamcenter views as the agent's service user, so it sees exactly what setup/check.py
-proved the role can read. VS Code starts it over stdio from .vscode/mcp.json.
+proved the role can read. VS Code starts it over stdio from .vscode/mcp.json. Stage 5 runs the same
+server on Azure Container Apps over streamable HTTP, where Key Vault supplies the key.
 
-Run: uv run server/teamcenter.py
+Run: uv run server/teamcenter.py           stdio
+     uv run server/teamcenter.py --http    streamable HTTP on port 8000, path /mcp
 """
 import os
+import sys
 from functools import cache
 from typing import Annotated
 
 import snowflake.connector
+from cryptography.hazmat.primitives import serialization
 from dotenv import load_dotenv
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
+from mcp.server.transport_security import TransportSecuritySettings
 from pydantic import Field
 
 WorkOrder = Annotated[str, Field(pattern=r"^1\d{8}$", description="SAP work order number, for example 100004521")]
@@ -27,13 +32,23 @@ mcp = MCPServer("technik-teamcenter", instructions=(
     "operation uses, and whether a revision is the released one. It holds metadata, not document text."))
 
 
+def private_key():
+    """The service user's key: the PEM itself when Key Vault supplies it, else the file the seed wrote."""
+    pem = os.environ.get("SNOWFLAKE_PRIVATE_KEY")
+    if not pem:
+        return {"private_key_file": os.environ["SNOWFLAKE_PRIVATE_KEY_FILE"]}
+    key = serialization.load_pem_private_key(pem.encode(), password=None)
+    return {"private_key": key.private_bytes(serialization.Encoding.DER, serialization.PrivateFormat.PKCS8,
+                                             serialization.NoEncryption())}
+
+
 def connect():
     load_dotenv()
     return snowflake.connector.connect(
         account=os.environ["SNOWFLAKE_ACCOUNT"],
         user=os.environ["SNOWFLAKE_USER"],
         authenticator="SNOWFLAKE_JWT",
-        private_key_file=os.environ["SNOWFLAKE_PRIVATE_KEY_FILE"],
+        **private_key(),
         role=os.environ["SNOWFLAKE_ROLE"],
         warehouse=os.environ["SNOWFLAKE_WAREHOUSE"],
         database=os.environ["SNOWFLAKE_DATABASE"],
@@ -133,5 +148,16 @@ def get_revision_status(item_no: ItemNo, revision: Revision | None = None) -> st
            f"The released revision is {current}."
 
 
+def serve_http():
+    """Streamable HTTP for Container Apps: stateless, so any replica can answer any request.
+
+    The Host header must be the app's own name (MCP_ALLOWED_HOSTS), which guards against DNS rebinding.
+    """
+    port = int(os.environ.get("PORT", "8000"))
+    hosts = [h for h in os.environ.get("MCP_ALLOWED_HOSTS", "").split(",") if h]
+    mcp.run("streamable-http", host="0.0.0.0", port=port, stateless_http=True, json_response=True,
+            transport_security=TransportSecuritySettings(allowed_hosts=hosts + [f"localhost:{port}"]))
+
+
 if __name__ == "__main__":
-    mcp.run()
+    serve_http() if "--http" in sys.argv else mcp.run()

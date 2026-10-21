@@ -17,7 +17,10 @@ Technik, its data and its documents are **fictional, for training only**.
 | `tests/` | Offline tests: a fake Snowflake built from `seed/data/`, and the server spawned over stdio |
 | `agent/` | Stage 3: the agent, its instructions and offline tests, in its own uv project (Agent Framework) |
 | `evals/` | Stage 4: the evaluation set (under source control from the first commit), its runner, the offline replay and the baseline |
-| `.github/workflows/evals.yml` | Runs the tests and the evals on every pull request |
+| `.github/workflows/evals.yml` | Runs the tests and the evals on every pull request, and lints the Bicep |
+| `infra/` | Stage 5: Bicep for the server's side on Azure: Key Vault, a registry, Container Apps, its Entra app |
+| `azure.yaml` | Stage 5: the Foundry side: the project, the model, the server's connection, the toolbox and the hosted agent |
+| `.github/workflows/release.yml` | Stage 5: the release: the evals as the gate, then the deployment, then Foundry's report |
 
 There are two uv projects. The root one (seed, setup check and, from stage 2, the MCP server) uses
 MCP Python SDK v2. `agent/` has its own, because Agent Framework's MCP client still requires
@@ -146,3 +149,111 @@ summary and is uploaded as an artifact. Its `live` job is off until you set the 
 `keys/technik_agent_svc.p8`. A live run has no baseline at first. Run
 `uv run ../evals/run.py --update-baseline` once, read the report, and commit the baseline. That
 commit is what a review approves.
+
+## Stage 5: ship it
+
+Two things go to Azure. The stage 2 server runs on Azure Container Apps over streamable HTTP, and
+the agent runs as a Foundry hosted agent with its own Microsoft Entra Agent ID. The agent doesn't
+start the server anymore. It reaches the server through a Foundry toolbox, and Foundry calls the
+server with a token for the agent's identity. The server's app answers only identities that hold
+its `Teamcenter.Read` role, so the agent is the only caller.
+
+| File | What it deploys |
+|---|---|
+| `infra/base.bicep` | Key Vault, a container registry, the Container Apps environment, Application Insights, the server's managed identity, and the server's Entra app with its role |
+| `server/Dockerfile`, `infra/server.bicep` | The server image and its Container App, with Entra built-in authentication. Key Vault supplies the Snowflake key |
+| `agent/hosted.py`, `agent/Dockerfile` | The agent behind the Responses protocol, with its tools from the toolbox |
+| `azure.yaml` | The Foundry project and model deployment, the `teamcenter` connection (agent identity), the `technik-tools` toolbox and the hosted agent |
+
+You need the Azure CLI, the Azure Developer CLI 1.32 or later, and Docker, which builds the agent's
+image. Use a region where hosted agents are available.
+
+```powershell
+az login
+azd auth login
+azd ext install microsoft.foundry
+```
+
+1. Create the resource group and the server's side:
+
+   ```powershell
+   az group create -n rg-technik -l swedencentral
+   az deployment group create -g rg-technik -f infra/base.bicep --query properties.outputs
+   ```
+
+2. Put the agent's Snowflake key in the vault. It never goes into an image or a setting:
+
+   ```powershell
+   az keyvault secret set --vault-name <keyVaultName> -n snowflake-private-key --file keys/technik_agent_svc.p8
+   ```
+
+3. Build the server's image in the registry, then deploy its Container App:
+
+   ```powershell
+   az acr build -r <registryName> -t teamcenter-mcp:1 -f server/Dockerfile .
+   az deployment group create -g rg-technik -f infra/server.bicep --query properties.outputs.url.value `
+     -p image=<registryLoginServer>/teamcenter-mcp:1 snowflakeAccount=<your-account>
+   ```
+
+4. Tell azd where the server is and which audience its tokens need:
+
+   ```powershell
+   azd env new technik
+   azd env set AZURE_LOCATION swedencentral
+   azd env set TEAMCENTER_MCP_URL <url>
+   azd env set TEAMCENTER_AUDIENCE <audience>
+   ```
+
+5. Provision the Foundry project, the model and the connection, then deploy the toolbox and the agent:
+
+   ```powershell
+   azd up
+   ```
+
+6. Give the agent's identity the server's role. Until you do, Entra refuses it a token and every tool
+   call fails:
+
+   ```powershell
+   $agent = (azd ai agent show --output json | ConvertFrom-Json).instance_identity.principal_id
+   $body = @{ principalId = $agent; resourceId = "<serverPrincipalId>"; appRoleId = "<readRoleId>" } | ConvertTo-Json
+   az rest --method post --body $body `
+     --url "https://graph.microsoft.com/v1.0/servicePrincipals/<serverPrincipalId>/appRoleAssignedTo"
+   ```
+
+7. Turn on tracing. In the Foundry portal, open the project, select **Agents**, then **Traces**, and
+   connect the Application Insights resource `base.bicep` created. The hosted agent already emits
+   OpenTelemetry. Foundry injects the connection string once the resource is connected.
+
+8. Ask it something, then read the trace in **Traces**:
+
+   ```powershell
+   azd ai agent invoke "Which documents does operation 0010 of work order 100004510 use?"
+   ```
+
+Anyone with access to the Foundry project can open the agent in the portal's playground.
+
+### What the offline checks cover
+
+```powershell
+uv run pytest
+cd agent
+uv run pytest
+```
+
+The root suite runs the server over streamable HTTP, refuses a request for another host name, and
+reads the key the way Key Vault supplies it. It also validates `azure.yaml` against azd's own
+schemas, vendored in `infra/schemas/`, and checks that the Bicep, the Dockerfiles and the code agree
+on ports, variables and the audience. The agent suite drives the hosted Responses endpoint in
+process. The hosted server always streams, so the refusal guard holds a streamed answer until it
+knows a tool backed it. CI also lints both Bicep files and builds both images, without pushing them.
+
+### The release
+
+`.github/workflows/release.yml` runs on a `v*` tag once you set the repository variable `SHIP_LIVE`
+to `true`. It runs the evals workflow first, and a regression stops the release there. Then
+`azd deploy` creates a new agent version, and `microsoft/ai-agent-evals` runs Foundry's judges on the
+new version and the one it replaced, with `evals/action_dataset.json`. That report goes to the run
+summary and doesn't block anything. After you change `evals/eval_set.jsonl`, regenerate the dataset
+from `agent/` with `uv run ../evals/action_dataset.py`. Besides the variables the live evals need,
+the release needs `AZURE_ENV_NAME`, `AZURE_LOCATION`, `FOUNDRY_PROJECT_ENDPOINT`,
+`TEAMCENTER_MCP_URL` and `TEAMCENTER_AUDIENCE`.

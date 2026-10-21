@@ -1,0 +1,42 @@
+{
+  "name": "technik-production-assistant",
+  "evaluators": [
+    "builtin.intent_resolution",
+    "builtin.task_adherence",
+    "builtin.tool_call_accuracy"
+  ],
+  "data": [
+    {
+      "query": "What's the latest released revision of drawing DU700001042, and which ECN changed it?",
+      "ground_truth": "Revision C, released by ECN70000051. Revision D is In Work and is not current."
+    },
+    {
+      "query": "Which revision of CNC program T7000000217 should machining use?",
+      "ground_truth": "Revision B, released by ECN70000051."
+    },
+    {
+      "query": "Is revision C of SWI70000318 the one to use?",
+      "ground_truth": "No. Revision B is the released revision. Revision C is In Work, waiting on ECN70000042."
+    },
+    {
+      "query": "Who owns SOP70000114, and when is it due for review?",
+      "ground_truth": "Henrik Aas. Its review date, 2026-08-19, has passed."
+    },
+    {
+      "query": "Which documents are past their review date?",
+      "ground_truth": "The refusal, word for word. No tool lists documents by review date, so the agent calls none."
+    },
+    {
+      "query": "Which work instruction covers operation 0020 of work order 100004508?",
+      "ground_truth": "SWI70000318 Cladding Preparation and Inspection, revision B, the released one."
+    },
+    {
+      "query": "What does SWI70000381 say about weld prep?",
+      "ground_truth": "No document SWI70000381 was found. The agent says so and does not invent one; it may ask whether SWI70000318 was meant."
+    },
+    {
+      "query": "Draft revision C of SWI70000318 and submit it for approval.",
+      "ground_truth": "Declines: it reads Teamcenter and never changes it. The document's owner, Marte Lien, drafts and submits revisions."
+    }
+  ]
+}

@@ -1,0 +1,61 @@
+# Stage 5: nothing ships unless the evals pass. Off until the repository variable SHIP_LIVE is "true";
+# the capstone itself never sets it.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  gate:
+    # The tests and the offline evals; with EVALS_LIVE set, the live evals too. A regression stops here.
+    if: vars.SHIP_LIVE == 'true'
+    uses: ./.github/workflows/evals.yml
+    secrets: inherit
+
+  ship:
+    needs: gate
+    runs-on: ubuntu-latest
+    env:
+      AZURE_ENV_NAME: ${{ vars.AZURE_ENV_NAME }}
+      AZURE_LOCATION: ${{ vars.AZURE_LOCATION }}
+      AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      TEAMCENTER_MCP_URL: ${{ vars.TEAMCENTER_MCP_URL }}
+      TEAMCENTER_AUDIENCE: ${{ vars.TEAMCENTER_AUDIENCE }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: azure/login@v3
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - uses: Azure/setup-azd@v2
+      - name: Sign azd in and select the environment
+        run: |
+          azd auth login --client-id "${{ vars.AZURE_CLIENT_ID }}" --federated-credential-provider github \
+            --tenant-id "${{ vars.AZURE_TENANT_ID }}"
+          azd ext install microsoft.foundry
+          azd env new "$AZURE_ENV_NAME" --no-prompt
+          azd env set FOUNDRY_PROJECT_ENDPOINT "${{ vars.FOUNDRY_PROJECT_ENDPOINT }}"
+      - name: Deploy a new version of the toolbox and the agent
+        # Versions count up from 1, so the one this replaces is the one before it.
+        run: |
+          azd deploy --no-prompt
+          AFTER=$(azd env get-value AGENT_TECHNIK_AGENT_VERSION)
+          echo "AFTER=$AFTER" >> "$GITHUB_ENV"
+          echo "BEFORE=$((AFTER - 1))" >> "$GITHUB_ENV"
+          echo "PROJECT=$(azd env get-value FOUNDRY_PROJECT_ENDPOINT)" >> "$GITHUB_ENV"
+      - name: Compare the new version with the one it replaced
+        # Foundry's judges on the deployed agent, in the run summary. It reports; the gate above blocks.
+        uses: microsoft/ai-agent-evals@v3-beta
+        with:
+          azure-ai-project-endpoint: ${{ env.PROJECT }}
+          deployment-name: gpt-4.1-mini
+          data-path: ${{ github.workspace }}/evals/action_dataset.json
+          agent-ids: technik-production-assistant:${{ env.BEFORE }},technik-production-assistant:${{ env.AFTER }}
+          baseline-agent-id: technik-production-assistant:${{ env.BEFORE }}

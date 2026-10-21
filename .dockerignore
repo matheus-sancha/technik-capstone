@@ -1,0 +1,6 @@
+# The server image needs pyproject.toml, uv.lock and server/ only. Keys and .env never leave this machine.
+*
+!pyproject.toml
+!uv.lock
+!server/
+server/__pycache__/

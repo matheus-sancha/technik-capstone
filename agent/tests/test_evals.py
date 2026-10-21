@@ -46,3 +46,10 @@ def test_a_known_failure_is_reported_but_does_not_block():
     found = {case: {"status": status, "why": []} for case, status in baseline().items()}
     assert evals.compare(found, baseline()) == []
     assert "| rev-03 | trap | fail | fail |" in evals.report("offline", found, baseline(), [])
+
+
+def test_the_action_dataset_is_the_eval_set():
+    sys.path.insert(0, str(EVALS))
+    import action_dataset
+    committed = json.loads((EVALS / "action_dataset.json").read_text(encoding="utf-8"))
+    assert committed == action_dataset.dataset(), "run: uv run ../evals/action_dataset.py"

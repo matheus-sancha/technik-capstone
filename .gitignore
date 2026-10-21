@@ -9,3 +9,6 @@ __pycache__/
 
 # Evals: written by every run
 evals/report.md
+
+# azd: environments hold resource names and can hold secrets
+.azure/

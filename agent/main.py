@@ -7,7 +7,7 @@ import shutil
 import sys
 from pathlib import Path
 
-from agent_framework import Agent, AgentContext, MCPStdioTool, Message, agent_middleware
+from agent_framework import Agent, AgentContext, AgentResponseUpdate, MCPStdioTool, Message, agent_middleware
 from dotenv import load_dotenv
 
 ROOT = Path(__file__).parent.parent
@@ -20,15 +20,25 @@ REFUSAL = ("I can't answer that from Teamcenter. I can look up a controlled docu
 TOOL_LOOP = {"include_detailed_errors": True, "max_function_calls": 6}
 
 
-@agent_middleware
-async def grounded_or_refuse(context: AgentContext, call_next):
+def refuse_unless_grounded(response):
     """An answer that no tool result backs came from the model's memory: replace it with the refusal."""
-    await call_next()
-    response = context.result
-    if context.stream or response is None:
-        return
     if not any(c.type == "function_result" for m in response.messages for c in m.contents):
         response.messages = [Message(role="assistant", contents=[REFUSAL])]
+    return response
+
+
+@agent_middleware
+async def grounded_or_refuse(context: AgentContext, call_next):
+    await call_next()
+    if context.result is None:
+        return
+    if not context.stream:
+        refuse_unless_grounded(context.result)
+        return
+    # The hosted server always streams. Hold the updates until the answer is final, check it,
+    # and release only what passed: the answer, or the refusal in its place.
+    context.result = context.result.with_result_transform(refuse_unless_grounded).buffer_updates(
+        result_to_updates=lambda r: [AgentResponseUpdate(role=m.role, contents=m.contents) for m in r.messages])
 
 
 def teamcenter_server(command="uv", args=("run", "--directory", str(ROOT), "server/teamcenter.py")):
@@ -37,10 +47,11 @@ def teamcenter_server(command="uv", args=("run", "--directory", str(ROOT), "serv
                         load_prompts=False, tool_result_content="content_first")
 
 
-def build_agent(client, server):
+def build_agent(client, tools, **options):
+    """The agent. Its tools are the stage 2 server: over stdio here, through the Foundry toolbox when hosted."""
     return Agent(client=client, name="technik-production-assistant",
                  instructions=INSTRUCTIONS.read_text(encoding="utf-8"),
-                 tools=server, middleware=[grounded_or_refuse])
+                 tools=tools, middleware=[grounded_or_refuse], **options)
 
 
 async def ask(question):
