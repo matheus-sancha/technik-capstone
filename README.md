@@ -16,7 +16,8 @@ Technik, its data and its documents are **fictional, for training only**.
 | `server/teamcenter.py` | Stage 2: the MCP server over Teamcenter, with three tools |
 | `tests/` | Offline tests: a fake Snowflake built from `seed/data/`, and the server spawned over stdio |
 | `agent/` | Stage 3: the agent, its instructions and offline tests, in its own uv project (Agent Framework) |
-| `evals/eval_set.jsonl` | The evaluation set, under source control from the first commit |
+| `evals/` | Stage 4: the evaluation set (under source control from the first commit), its runner, the offline replay and the baseline |
+| `.github/workflows/evals.yml` | Runs the tests and the evals on every pull request |
 
 There are two uv projects. The root one (seed, setup check and, from stage 2, the MCP server) uses
 MCP Python SDK v2. `agent/` has its own, because Agent Framework's MCP client still requires
@@ -114,3 +115,34 @@ uv run pytest
 These tests never touch Snowflake or Azure. A scripted fake model drives Agent Framework's real
 tool loop, and the real server runs as a subprocess with the fake Snowflake. They check one
 answered question, one failed lookup, and one answer from memory that becomes the refusal.
+
+## Stage 4: the evals
+
+`evals/eval_set.jsonl` is the versioned evaluation set. Each case has a question, a ground truth,
+the tool calls it should make and the facts its answer must contain. `evals/run.py` runs every case
+through the agent with Agent Framework's `evaluate_agent`, then grades it. Three code checks always
+run: `tool_calls_present`, `tool_call_args_match` and `facts_present`. In a live run, Foundry's
+judges are added: intent resolution, task adherence and tool call accuracy. The report compares
+the run with `evals/baseline.json` and fails on a regression, meaning a case the baseline passes
+and this run doesn't.
+
+```powershell
+cd agent
+uv run ../evals/run.py --offline
+```
+
+Offline, a replayed model stands in for Foundry. `evals/replay.jsonl` holds one plausible model
+turn per case, and the fake Snowflake stands in for the real one. One case fails on purpose.
+For `rev-03`, the replay checks the revision and then calls the unreleased revision C current anyway.
+A tool result backs that answer, so the refusal guard lets it through, and only a grader catches it.
+The baseline records it as a known failure. It shows up red in every report but doesn't block a merge.
+
+`.github/workflows/evals.yml` runs the server tests, the agent tests and the offline evals on every
+pull request that touches the agent, the server, the evals or the data. The report goes to the run's
+summary and is uploaded as an artifact. Its `live` job is off until you set the repository variable
+`EVALS_LIVE` to `true`. It then needs these variables: `AZURE_CLIENT_ID`, `AZURE_TENANT_ID`,
+`AZURE_SUBSCRIPTION_ID` (for OpenID Connect sign-in), `FOUNDRY_PROJECT_ENDPOINT`, `FOUNDRY_MODEL` and
+`SNOWFLAKE_ACCOUNT`. It also needs one secret, `SNOWFLAKE_PRIVATE_KEY`, which holds the contents of
+`keys/technik_agent_svc.p8`. A live run has no baseline at first. Run
+`uv run ../evals/run.py --update-baseline` once, read the report, and commit the baseline. That
+commit is what a review approves.

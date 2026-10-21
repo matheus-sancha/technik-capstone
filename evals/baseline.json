@@ -1,0 +1,12 @@
+{
+  "offline": {
+    "rev-01": "pass",
+    "rev-02": "pass",
+    "rev-03": "fail",
+    "doc-01": "pass",
+    "doc-02": "pass",
+    "op-01": "pass",
+    "abstain-01": "pass",
+    "scope-01": "pass"
+  }
+}

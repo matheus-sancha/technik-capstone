@@ -6,3 +6,6 @@ keys/
 .venv/
 __pycache__/
 *.pyc
+
+# Evals: written by every run
+evals/report.md

@@ -1,0 +1,81 @@
+# Stage 4: no change to the agent's instructions, tools, model or data merges without an eval result.
+name: Evals
+
+on:
+  pull_request:
+    paths: ["agent/**", "server/**", "evals/**", "seed/data/**", "tests/**", ".github/workflows/evals.yml"]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  offline:
+    # The replayed model and the fake Snowflake: no account, no secrets, the same result every run.
+    runs-on: ubuntu-latest
+    env:
+      UV_LOCKED: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.11.26"
+      - name: Server tests
+        run: uv run pytest
+      - name: Agent and runner tests
+        working-directory: agent
+        run: uv run pytest
+      - name: Evals against the baseline
+        working-directory: agent
+        run: uv run ../evals/run.py --offline
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eval-report-offline
+          path: evals/report.md
+
+  live:
+    # The Foundry model, real Snowflake and Foundry's judges. Off until the repository variable
+    # EVALS_LIVE is "true"; the capstone itself never sets it.
+    if: vars.EVALS_LIVE == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      UV_LOCKED: "1"
+      FOUNDRY_PROJECT_ENDPOINT: ${{ vars.FOUNDRY_PROJECT_ENDPOINT }}
+      FOUNDRY_MODEL: ${{ vars.FOUNDRY_MODEL }}
+      SNOWFLAKE_ACCOUNT: ${{ vars.SNOWFLAKE_ACCOUNT }}
+      SNOWFLAKE_USER: TECHNIK_AGENT_SVC
+      SNOWFLAKE_PRIVATE_KEY_FILE: ${{ github.workspace }}/keys/technik_agent_svc.p8
+      SNOWFLAKE_ROLE: TECHNIK_AGENT_RO
+      SNOWFLAKE_WAREHOUSE: TECHNIK_AGENT_WH
+      SNOWFLAKE_DATABASE: TECHNIK_DW
+      SNOWFLAKE_SCHEMA: OPS
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.11.26"
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Write the agent's Snowflake key
+        run: |
+          mkdir -p keys
+          printf '%s\n' "$SNOWFLAKE_PRIVATE_KEY" > "$SNOWFLAKE_PRIVATE_KEY_FILE"
+        env:
+          SNOWFLAKE_PRIVATE_KEY: ${{ secrets.SNOWFLAKE_PRIVATE_KEY }}
+      - name: Evals against the baseline
+        working-directory: agent
+        run: uv run ../evals/run.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eval-report-live
+          path: evals/report.md
